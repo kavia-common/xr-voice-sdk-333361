@@ -6,3 +6,4 @@ CMakeUserPresets.json
 
 # documentation output files
 src/doxygen/output/
+.file_activity_report.json
