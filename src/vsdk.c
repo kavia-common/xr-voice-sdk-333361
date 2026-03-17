@@ -40,6 +40,10 @@ typedef struct {
    void *handle_ffv_ppr;
 } vsdk_ffv_plugin_handles_t;
 
+// Fallback endpoint is stored here (VSDK layer) so it is accessible across the SDK.
+// It is optional and may be NULL.
+static char *g_vsdk_fallback_endpoint = NULL;
+
 typedef struct {
    bool                      initialized;
    bool                      curtail_xraudio;
@@ -184,7 +188,55 @@ void vsdk_term(void) {
       g_vsdk.ffv_plugins.handle_ffv_ppr = NULL;
    }
 
+   if(g_vsdk_fallback_endpoint != NULL) {
+      free(g_vsdk_fallback_endpoint);
+      g_vsdk_fallback_endpoint = NULL;
+   }
+
    g_vsdk.initialized = false;
+}
+
+bool vsdk_fallback_endpoint_set(const char *url) {
+   // NULL or empty => clear
+   if(url == NULL || url[0] == '\0') {
+      if(g_vsdk_fallback_endpoint != NULL) {
+         free(g_vsdk_fallback_endpoint);
+         g_vsdk_fallback_endpoint = NULL;
+      }
+      return(true);
+   }
+
+   // Basic validation: must contain :// to look like a URL (http/https/ws/wss/etc).
+   // This keeps the API lightweight while still catching common mistakes.
+   if(strstr(url, "://") == NULL) {
+      XLOGD_ERROR("invalid fallback endpoint url <%s>", url);
+      return(false);
+   }
+
+   char *dup = strdup(url);
+   if(dup == NULL) {
+      XLOGD_ERROR("out of memory");
+      return(false);
+   }
+
+   if(g_vsdk_fallback_endpoint != NULL) {
+      free(g_vsdk_fallback_endpoint);
+   }
+   g_vsdk_fallback_endpoint = dup;
+
+   XLOGD_INFO("fallback endpoint set <%s>", g_vsdk_fallback_endpoint);
+   return(true);
+}
+
+const char *vsdk_fallback_endpoint_get(void) {
+   return(g_vsdk_fallback_endpoint);
+}
+
+int xrv_set_fallback_endpoint(const char *url) {
+   // Allow configuration before vsdk_init(); logging macros are still safe as they
+   // typically fall back to console depending on platform configuration.
+   bool ok = vsdk_fallback_endpoint_set(url);
+   return(ok ? 0 : -1);
 }
 
 xlog_level_t vsdk_log_level_get(xlog_module_id_t id) {

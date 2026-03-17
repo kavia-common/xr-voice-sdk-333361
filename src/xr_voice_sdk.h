@@ -136,6 +136,14 @@ void         vsdk_log_level_set_all(xlog_level_t level);
 /// @return The function has no return value.
 void         vsdk_thread_poll(vsdk_thread_poll_func_t func, void *data);
 
+/// @brief Set fallback speech server endpoint
+/// @details
+/// Configures a fallback (backup) speech server URL to be used by the SDK when the primary endpoint
+/// is unreachable. Passing NULL or an empty string clears the fallback endpoint.
+/// @param[in] url NULL-terminated URL string (e.g. "wss://backup.example.com/voice") or NULL to clear.
+/// @return The function returns 0 for success. All other values indicate a failure.
+int          xrv_set_fallback_endpoint(const char *url);
+
 /// @}
 
 #ifdef __cplusplus

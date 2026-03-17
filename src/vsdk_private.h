@@ -46,6 +46,13 @@ xraudio_sdf_plugin_api_t *vsdk_sdf_plugin_get(void);
 xraudio_ovc_plugin_api_t *vsdk_ovc_plugin_get(void);
 xraudio_ppr_plugin_api_t *vsdk_ppr_plugin_get(void);
 
+// Fallback speech server endpoint configuration (process-wide)
+//
+// These are intentionally kept in the VSDK layer so applications can configure
+// behavior without needing to directly manipulate speech-router internals.
+bool        vsdk_fallback_endpoint_set(const char *url);
+const char *vsdk_fallback_endpoint_get(void);
+
 #ifdef __cplusplus
 }
 #endif
