@@ -1,0 +1,162 @@
+# Doxygen configuration for xr-voice-sdk
+#
+# Usage:
+#   doxygen Doxyfile
+#
+# Output:
+#   build/docs/doxygen/html/index.html
+#
+# Notes:
+# - This config is intended to document the public C API from headers under src/.
+# - It also includes selected .c sources so function definitions and cross-references
+#   can be generated, without trying to document every private/internal header.
+# - Paths are relative to the repository root.
+
+#---------------------------------------------------------------------------
+# Project related configuration options
+#---------------------------------------------------------------------------
+
+DOXYFILE_ENCODING      = UTF-8
+PROJECT_NAME           = "xr-voice-sdk"
+PROJECT_BRIEF          = "Native C XR Voice SDK (audio capture, speech routing, transport, and logging) for RDK-based devices."
+PROJECT_NUMBER         =
+OUTPUT_DIRECTORY       = build/docs/doxygen
+
+# If set to YES, a timestamp is added to the generated pages.
+HTML_TIMESTAMP         = YES
+
+#---------------------------------------------------------------------------
+# Build related configuration options
+#---------------------------------------------------------------------------
+
+# This is a C library; optimize output accordingly.
+OPTIMIZE_OUTPUT_FOR_C  = YES
+
+# Extract docs only for documented entities by default.
+EXTRACT_ALL            = NO
+EXTRACT_STATIC         = NO
+EXTRACT_PRIVATE        = NO
+HIDE_UNDOC_MEMBERS     = YES
+HIDE_UNDOC_CLASSES     = YES
+
+# Include brief member descriptions in listings.
+BRIEF_MEMBER_DESC      = YES
+REPEAT_BRIEF           = YES
+
+#---------------------------------------------------------------------------
+# Configuration options related to warning and progress messages
+#---------------------------------------------------------------------------
+
+QUIET                  = NO
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+
+#---------------------------------------------------------------------------
+# Configuration options related to the input files
+#---------------------------------------------------------------------------
+
+# Public headers + relevant source
+#
+# We include the core public header and the other installed API headers under src/.
+# We also include .c source files to improve cross-references and call graphs.
+#
+# If your build generates additional public headers (e.g., version headers) and you
+# want them included, add them here (or enable RECURSIVE and rely on patterns).
+INPUT                  = \
+                         README.doxygen.md \
+                         src/xr_voice_sdk.h \
+                         src/xr-audio/xraudio.h \
+                         src/xr-speech-router/xrsr.h \
+                         src/xr-speech-vrex/xrsv.h \
+                         src/xr-speech-vrex/xrsv_http/xrsv_http.h \
+                         src/xr-speech-vrex/xrsv_ws_nextgen/xrsv_ws_nextgen.h \
+                         src
+
+# Recurse into src/ so submodules are discovered.
+RECURSIVE              = YES
+
+# Only parse these file patterns from directories listed in INPUT.
+FILE_PATTERNS          = *.h *.c *.md *.dox
+
+# Exclude internal/private headers and implementation details that are not part of the public API surface.
+EXCLUDE_PATTERNS       = \
+                         */*_private.h \
+                         */*private.h \
+                         */*internal.h \
+                         */vsdk_private.h \
+                         */*.hash \
+                         */*.json \
+                         */output/* \
+                         */build/*
+
+# Make paths in the docs nicer/relative.
+FULL_PATH_NAMES        = YES
+STRIP_FROM_PATH        = .
+STRIP_FROM_INC_PATH    = .
+
+# Use README.doxygen.md as the main page.
+USE_MDFILE_AS_MAINPAGE = README.doxygen.md
+MARKDOWN_SUPPORT       = YES
+
+#---------------------------------------------------------------------------
+# Configuration options related to the preprocessor
+#---------------------------------------------------------------------------
+
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = NO
+EXPAND_ONLY_PREDEF     = NO
+
+# Common pattern used in projects to hide code from doxygen.
+PREDEFINED             = DOXYGEN=1 DOXYGEN_SHOULD_SKIP_THIS
+
+#---------------------------------------------------------------------------
+# Configuration options related to the HTML output
+#---------------------------------------------------------------------------
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+
+# Navigation / usability
+GENERATE_TREEVIEW      = YES
+SEARCHENGINE           = YES
+
+#---------------------------------------------------------------------------
+# Configuration options related to LaTeX output
+#---------------------------------------------------------------------------
+
+# Keep LaTeX output off by default to reduce dependencies for most developers.
+GENERATE_LATEX         = NO
+
+#---------------------------------------------------------------------------
+# Configuration options related to source browsing
+#---------------------------------------------------------------------------
+
+# Provide optional source browsing without dumping huge inline code by default.
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = YES
+VERBATIM_HEADERS       = YES
+
+#---------------------------------------------------------------------------
+# Dot / graphs
+#---------------------------------------------------------------------------
+
+# If graphviz(dot) is installed, these improve API comprehension. If it isn't,
+# doxygen will still run; graphs will be skipped.
+HAVE_DOT               = YES
+CLASS_DIAGRAMS         = YES
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+DOT_IMAGE_FORMAT       = png
+DOT_MULTI_TARGETS      = YES
+DOT_CLEANUP            = YES
+
+#---------------------------------------------------------------------------
+# Misc
+#---------------------------------------------------------------------------
+
+# Keep generated output deterministic and avoid documenting internal notes.
+INTERNAL_DOCS          = NO
