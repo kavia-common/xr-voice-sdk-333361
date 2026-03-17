@@ -181,24 +181,31 @@ extern "C" {
 /// @brief Function definitions
 /// @details The VREX speech request handler provides functions to be called directly by the user application.
 
-/// @brief Open the vrex speech request handler
-/// @details Function which opens the vrex speech request handler interface.
-/// @param[in] params Pointer to a structure of params which will be used while opening the interace.  Many of these parameters can be updated while the interface is open.
-/// @return The function returns true for success, otherwise false.
+/// @brief Create/open the VREX HTTP speech request handler
+/// @details
+/// Allocates and initializes an HTTP-based VREX speech request handler instance. The returned object is subsequently used
+/// with the other xrsv_http_* APIs. The instance retains (copies) the relevant fields from @p params as part of its internal
+/// configuration.
+/// @param[in] params Pointer to the configuration parameters used when creating the interface. Many of these parameters can
+///                   be updated while the interface is open via the xrsv_http_update_* APIs.
+/// @return A non-NULL handler object on success; NULL on failure.
 xrsv_http_object_t xrsv_http_create(const xrsv_http_params_t *params);
 
-/// @brief Set the vrex speech request handlers
-/// @details Function type to set the handlers for a given protocol.
-/// @param[in] prot         Protocol for which the handlers apply
-/// @param[in] handlers_in  Set of handlers that are set by the application.
-/// @param[in] handlers_out Set of handlers provided by this component for use by the application.
-/// @return The function returns true for success, otherwise false.
+/// @brief Configure VREX HTTP handlers and obtain speech-router compatible handlers
+/// @details
+/// Registers the application callbacks for the HTTP VREX handler instance and produces an XRSR-compatible handler table
+/// that can be installed into an xrsr_route_t destination. This is the primary integration point between XRSV and XRSR.
+/// @param[in]  object       Handler instance returned by xrsv_http_create().
+/// @param[in]  handlers_in  Set of callbacks provided by the application. Unused callbacks must be set to NULL.
+/// @param[out] handlers_out Set of handlers produced by this component for use by the speech router.
+/// @return True on success; false on failure.
 bool xrsv_http_handlers(xrsv_http_object_t object, const xrsv_http_handlers_t *handlers_in, xrsr_handlers_t *handlers_out);
 
 /// @brief Update user data
-/// @details Function to update the pointer which is passed to all of the callbacks
-/// @param[in] user_data The pointer to the user data
-/// @return The function returns true on success, otherwise false
+/// @details Updates the pointer that is passed back to the application for every registered callback.
+/// @param[in] object    Handler instance returned by xrsv_http_create().
+/// @param[in] user_data Pointer to arbitrary application data.
+/// @return True on success; false on failure.
 bool xrsv_http_update_user_data(xrsv_http_object_t object, void *user_data);
 
 /// @brief Update the vrex speech request handler's device id

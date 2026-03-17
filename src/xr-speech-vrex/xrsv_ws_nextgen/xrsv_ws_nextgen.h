@@ -307,106 +307,127 @@ extern "C" {
 /// @brief Function definitions
 /// @details The VREX speech request handler provides functions to be called directly by the user application.
 
-/// @brief Open the vrex speech request handler
-/// @details Function which opens the vrex speech request handler interface.
-/// @param[in] params Pointer to a structure of params which will be used while opening the interace.  Many of these parameters can be updated while the interface is open.
-/// @return The function returns true for success, otherwise false.
+/// @brief Create/open the VREX WS NextGen speech request handler
+/// @details
+/// Allocates and initializes a WebSocket-based (NextGen) VREX speech request handler instance. The returned object is used
+/// with the other xrsv_ws_nextgen_* APIs.
+/// @param[in] params Pointer to configuration parameters used when creating the interface.
+/// @return A non-NULL handler object on success; NULL on failure.
 xrsv_ws_nextgen_object_t xrsv_ws_nextgen_create(const xrsv_ws_nextgen_params_t *params);
 
-/// @brief Set the vrex speech request handlers
-/// @details Function type to set the handlers for a given protocol.
-/// @param[in] handlers_in  Set of handlers that are set by the application.
-/// @param[in] handlers_out Set of handlers provided by this component for use by the application.
-/// @return The function returns true for success, otherwise false.
+/// @brief Configure VREX WS NextGen handlers and obtain speech-router compatible handlers
+/// @details
+/// Registers application callbacks for the WS NextGen handler instance and produces an XRSR-compatible handler table that
+/// can be installed into an xrsr_route_t destination.
+/// @param[in]  object       Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in]  handlers_in  Set of callbacks provided by the application. Unused callbacks must be set to NULL.
+/// @param[out] handlers_out Set of handlers produced by this component for use by the speech router.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_handlers(xrsv_ws_nextgen_object_t object, const xrsv_ws_nextgen_handlers_t *handlers_in, xrsr_handlers_t *handlers_out);
 
-/// @brief Update the user data for vrex speech handlers
-/// @details Function to update the user data for all of the handlers.
-/// @param[in] user_data the data the user wants to be passed in every handler.
-/// @return The function returns true for success, otherwise false.
+/// @brief Update the user data for VREX WS NextGen handlers
+/// @details Updates the pointer that is passed back to the application for every registered callback.
+/// @param[in] object    Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] user_data Pointer to arbitrary application data.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_user_data(xrsv_ws_nextgen_object_t object, void *user_data);
 
-/// @brief Update the vrex speech request handler's device id
-/// @details Function used to update the device id.
-/// @param[in] device_id Unique identifier for the device stored as a NULL-terminated string
-/// @return The function returns true for success, otherwise false.
+/// @brief Update the VREX WS NextGen handler's device id
+/// @details Updates the configured device identifier used when constructing messages to the service.
+/// @param[in] object    Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] device_id Unique identifier for the device stored as a NULL-terminated string.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_device_id(xrsv_ws_nextgen_object_t object, const char *device_id);
 
-/// @brief Update the vrex speech request handler's account id
-/// @details Function used to update the user's account identifier.
-/// @param[in] account_id User's account identifier stored as a NULL-terminated string
-/// @return The function returns true for success, otherwise false.
+/// @brief Update the VREX WS NextGen handler's account id
+/// @details Updates the user's account identifier used by the service.
+/// @param[in] object     Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] account_id User's account identifier stored as a NULL-terminated string.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_account_id(xrsv_ws_nextgen_object_t object, const char *account_id);
 
-/// @brief Update the vrex speech request handler's device type
-/// @details Function used to update the device type identifier.
-/// @param[in] device_type Device's identifier stored as a NULL-terminated string
-/// @return The function returns true for success, otherwise false.
+/// @brief Update the VREX WS NextGen handler's device type
+/// @details Updates the device type value used by the service.
+/// @param[in] object      Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] device_type Enumerated device type.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_device_type(xrsv_ws_nextgen_object_t object, xrsv_ws_nextgen_device_type_t device_type);
 
-/// @brief Update the vrex speech request handler's partner id
-/// @details Function used to update the partner identifier.
-/// @param[in] partner_id Network's partner identifier stored as a NULL-terminated string
-/// @return The function returns true for success, otherwise false.
+/// @brief Update the VREX WS NextGen handler's partner id
+/// @details Updates the partner identifier used by the service.
+/// @param[in] object     Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] partner_id Network's partner identifier stored as a NULL-terminated string.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_partner_id(xrsv_ws_nextgen_object_t object, const char *partner_id);
 
-/// @brief Update the vrex speech request handler's user experience id
-/// @details Function used to update the user experience identifier.
-/// @param[in] experience User experience identifier stored as a NULL-terminated string
-/// @return The function returns true for success, otherwise false.
+/// @brief Update the VREX WS NextGen handler's user experience id
+/// @details Updates the user experience identifier used by the service.
+/// @param[in] object     Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] experience User experience identifier stored as a NULL-terminated string.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_experience(xrsv_ws_nextgen_object_t object, const char *experience);
 
-/// @brief Update the vrex speech request handler's audio profile
-/// @details Function used to update the device's audio profile.
-/// @param[in] audio_profile Audio profile name stored as a NULL-terminated string
-/// @return The function returns true for success, otherwise false.
+/// @brief Update the VREX WS NextGen handler's audio profile
+/// @details Updates the configured audio profile name used by the service.
+/// @param[in] object        Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] audio_profile Audio profile name stored as a NULL-terminated string.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_audio_profile(xrsv_ws_nextgen_object_t object, const char *audio_profile);
 
-/// @brief Update the vrex speech request handler's audio model
-/// @details Function used to update the device's audio model.
-/// @param[in] audio_model Audio model name stored as a NULL-terminated string
-/// @return The function returns true for success, otherwise false.
+/// @brief Update the VREX WS NextGen handler's audio model
+/// @details Updates the configured audio model name used by the service.
+/// @param[in] object      Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] audio_model Audio model name stored as a NULL-terminated string.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_audio_model(xrsv_ws_nextgen_object_t object, const char *audio_model);
 
-/// @brief Update the vrex speech request handler's audio RF protocol
-/// @details Function used to update the device's RF protocol.
-/// @param[in] rf_protocol Audio device's RF protocol name stored as a NULL-terminated string
-/// @return The function returns true for success, otherwise false.
+/// @brief Update the VREX WS NextGen handler's RF protocol
+/// @details Updates the configured RF protocol name used by the service.
+/// @param[in] object      Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] rf_protocol RF protocol name stored as a NULL-terminated string.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_audio_rf_protocol(xrsv_ws_nextgen_object_t object, const char *rf_protocol);
 
-/// @brief Update the vrex speech request handler's language
-/// @details Function used to update the device's language.
-/// @param[in] language Current language setting stored as a NULL-terminated string
-/// @return The function returns true for success, otherwise false.
+/// @brief Update the VREX WS NextGen handler's language
+/// @details Updates the configured language used by the service.
+/// @param[in] object   Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] language Current language setting stored as a NULL-terminated string.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_language(xrsv_ws_nextgen_object_t object, const char *language);
 
-/// @brief Update the vrex speech request handler's PII mask
-/// @details Function used to update the mask PII option.
-/// @param[in] enable Masks PII if not false;
-/// @return The function returns true for success, otherwise false.
+/// @brief Update the VREX WS NextGen handler's PII masking option
+/// @details Enables/disables masking of personally-identifiable information (PII) in logs where supported.
+/// @param[in] object Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] enable True to enable PII masking; false to disable.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_mask_pii(xrsv_ws_nextgen_object_t object, bool enable);
 
 /// @brief Update application init blob
-/// @details Function used to update the application blob in the init message
-/// @param[in] blob NULL Terminated JSON blob to be added to init message
-/// @return The function returns true for success, otherwise false
+/// @details Updates an application-provided JSON blob that will be included in the WS init message.
+/// @param[in] object Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] blob   NULL-terminated JSON blob to be added to the init message.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_update_init_app(xrsv_ws_nextgen_object_t object, const char *blob);
 
-/// @brief Send message
-/// @details Function used to send a message over the WS.
-/// @param[in] msg NULL Terminated message to send
-/// @return The function returns true for success, otherwise false
+/// @brief Send a raw message
+/// @details Sends an application-provided message over the underlying WebSocket connection (if connected).
+/// @param[in] object Handler instance returned by xrsv_ws_nextgen_create().
+/// @param[in] msg    NULL-terminated message to send.
+/// @return True on success; false on failure.
 bool xrsv_ws_nextgen_send_msg(xrsv_ws_nextgen_object_t object, const char *msg);
 
-/// @brief Close the vrex speech request handler
-/// @details Function used to close the vrex speech request interface.
+/// @brief Destroy/close the VREX WS NextGen handler
+/// @details Closes the interface and frees resources associated with @p object.
+/// @param[in] object Handler instance returned by xrsv_ws_nextgen_create(). After return, the object is no longer valid.
 /// @return The function has no return value.
 void xrsv_ws_nextgen_destroy(xrsv_ws_nextgen_object_t object);
 
-/// @brief vrex speech request handler message string
-/// @details Function used to convert an enum to a string.
-/// @param[in] type Receive message type to convert to a string
-/// @return The function returns the result of the operation.
+/// @brief Convert XRSR receive message enum to a string (alias)
+/// @details
+/// This header provides an alias declaration for xrsr_recv_msg_str() to simplify integration for components that include
+/// only this header. The canonical declaration and documentation are in xrsr.h.
+/// @param[in] type Receive message type.
+/// @return Read-only, NULL-terminated string representation of @p type.
 const char *xrsr_recv_msg_str(xrsr_recv_msg_t type);
 
 /// @}

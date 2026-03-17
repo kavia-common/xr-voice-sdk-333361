@@ -88,17 +88,21 @@ extern "C" {
 void vsdk_version(vsdk_version_info_t *version_info, uint32_t *qty);
 
 /// @brief Initialize the voice SDK
-/// @details Initializes the voice SDK component.
-/// @param[in] ansi_color Set to true to enable ANSI color codes in the log output.
-/// @return The function returns 0 for success.  All other values indicate a failure.
+/// @details Initializes the voice SDK component and its internal subsystems (speech router, transport, logging, etc.).
+/// @param[in] ansi_color    Set to true to enable ANSI color codes in the log output.
+/// @param[in] filename      Optional path to a log file used by the SDK's logging subsystem. May be NULL to disable file logging.
+/// @param[in] file_size_max Maximum size of the log file in bytes (implementation-defined behavior once exceeded).
+/// @return The function returns 0 for success. All other values indicate a failure.
 int  vsdk_init(bool ansi_color, const char *filename, uint32_t file_size_max);
 
 /// @brief Initialize the voice SDK
-/// @details Initializes the voice SDK component with external logging functions.
-/// @param[in] print      Pointer to a print function
-/// @param[in] print_safe Pointer to a print function which is safe to use in a signal handler
-/// @param[in] ansi_color Set to true to enable ANSI color codes in the log output.
-/// @return The function returns 0 for success.  All other values indicate a failure.
+/// @details Initializes the voice SDK component with user-provided logging functions.
+/// @param[in] print         Pointer to a print function used for normal logging.
+/// @param[in] print_safe    Pointer to a print function which is safe to use in a signal handler.
+/// @param[in] ansi_color    Set to true to enable ANSI color codes in the log output.
+/// @param[in] filename      Optional path to a log file used by the SDK's logging subsystem. May be NULL to disable file logging.
+/// @param[in] file_size_max Maximum size of the log file in bytes (implementation-defined behavior once exceeded).
+/// @return The function returns 0 for success. All other values indicate a failure.
 int  vsdk_init_user_print(xlog_print_t print, xlog_print_t print_safe, bool ansi_color, const char *filename, uint32_t file_size_max);
 
 /// @brief Terminates the voice SDK

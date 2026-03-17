@@ -198,7 +198,6 @@ typedef enum {
    XRSR_POWER_MODE_INVALID = 3, ///< Invalid power mode type
 } xrsr_power_mode_t;
 
-
 typedef enum {
    XRSR_RECV_EVENT_EOS_SERVER        = 0,
    XRSR_RECV_EVENT_DISCONNECT_REMOTE = 1,
@@ -624,11 +623,17 @@ extern "C" {
 bool xrsr_config_get(xrsr_config_t *config);
 
 /// @brief Opens the speech router
-/// @details Opens the router and begins processing voice sessions.
-/// @param[in] host_name      NULL terminated string for the host name or NULL if not specified.
-/// @param[in] routes         Array of routes.  The last entry must contain a src value of XRSR_SRC_INVALID.
+/// @details
+/// Opens the router and begins processing voice sessions. When open, the router may create background threads and allocate
+/// resources used to manage session state, audio streaming, and protocol connections.
+/// @param[in] host_name      NULL-terminated string for the host name or NULL if not specified.
+/// @param[in] routes         Array of routes. The last entry must contain a src value of XRSR_SRC_INVALID.
 /// @param[in] keyword_config Keyword configuration information or NULL if not specified.
 /// @param[in] capture_config Capture configuration information or NULL if not specified.
+/// @param[in] power_mode     Initial power mode for the router (affects how sources/routes are managed).
+/// @param[in] privacy_mode   Initial privacy mode state. When enabled, the router is expected to suppress microphone capture/streaming.
+/// @param[in] mask_pii       If true, personally-identifiable information (PII) should be masked in logs where supported.
+/// @param[in] json_obj_vsdk  Optional JSON object containing additional VSDK configuration (ownership is not transferred; may be NULL).
 /// @return The function returns true if successful or false otherwise.
 bool xrsr_open(const char *host_name, const xrsr_route_t routes[], const xrsr_keyword_config_t *keyword_config, const xrsr_capture_config_t *capture_config, xrsr_power_mode_t power_mode, bool privacy_mode, bool mask_pii, json_t *json_obj_vsdk);
 
@@ -644,11 +649,11 @@ bool xrsr_host_name_set(const char *host_name);
 /// @return The function returns true if successful or false otherwise.
 bool xrsr_keyword_config_set(const xrsr_keyword_config_t *keyword_config);
 
-/// @brief Get the speech router keyword sensitivity limits
-/// @details Given float pointers, gets the keyword detector sensitivity minimum and maximum limits
-/// @param[in] type float pointer sensitivity minimum
-/// @param[in] type float pointer sensitivity maximum
-/// @return The function returns true if successful or false otherwise
+/// @brief Gets the speech router keyword sensitivity limits
+/// @details Retrieves the supported minimum and maximum keyword detector sensitivity values.
+/// @param[out] sensitivity_min Pointer to receive the minimum supported sensitivity.
+/// @param[out] sensitivity_max Pointer to receive the maximum supported sensitivity.
+/// @return The function returns true if successful or false otherwise.
 bool xrsr_keyword_sensitivity_limits_get(float *sensitivity_min, float *sensitivity_max);
 
 /// @brief Sets the capture configuration
@@ -669,10 +674,10 @@ bool xrsr_power_mode_set(xrsr_power_mode_t power_mode);
 /// @return The function returns true if successful or false otherwise.
 bool xrsr_privacy_mode_set(bool enable);
 
-/// @brief Get HAL privacy state
-/// @details Given a boolean pointer, gets HAL mic mute state
-/// @param[in] type bool pointer
-/// @return The function returns true if successful or false otherwise
+/// @brief Get the current privacy mode state
+/// @details Retrieves the effective privacy mode state (e.g., HAL microphone mute state) into the provided pointer.
+/// @param[out] enabled Pointer to receive the privacy mode state (true if enabled/muted, false otherwise).
+/// @return The function returns true if successful or false otherwise.
 bool xrsr_privacy_mode_get(bool *enabled);
 
 /// @brief Sets the speech router mask pii option
@@ -699,9 +704,14 @@ bool xrsr_route(const xrsr_route_t routes[]);
 bool xrsr_session_request(xrsr_src_t src, xrsr_audio_format_t output_format, xrsr_session_request_t input_format, const uuid_t *uuid, bool low_latency, bool low_cpu_util);
 
 /// @brief Updates the file descriptor for a speech router session
-/// @details Requests to update the file descriptor for a session that has been granted, but does not have the source file descriptor yet.
-/// @param[in] src Source type for the session
-/// @param[in] audio_file_fd audio file descriptor input for the session (optional)
+/// @details
+/// Updates the audio file descriptor for a session that has been granted but does not yet have the source file descriptor.
+/// This is commonly used when a session is requested first and the producer FD becomes available later.
+/// @param[in] src           Source type for the session.
+/// @param[in] audio_file_fd Audio file descriptor input for the session. Pass a negative value if no descriptor is available.
+/// @param[in] audio_format  Audio format carried by the file descriptor.
+/// @param[in] callback      Optional callback invoked when the input file descriptor is read.
+/// @param[in] user_data     Optional user data passed to @p callback.
 /// @return The function returns true if successful or false otherwise.
 bool xrsr_session_audio_fd_set(xrsr_src_t src, int audio_file_fd, xrsr_audio_format_t audio_format, xrsr_input_data_read_cb_t callback, void *user_data);
 
@@ -807,6 +817,8 @@ const char *xrsr_audio_container_str(xrsr_audio_container_t container);
 #ifdef __cplusplus
 }
 #endif
+
+/// @}
 
 /// @}
 
