@@ -104,6 +104,16 @@ static uint64_t xrsv_ws_nextgen_time_get(void);
 static bool     xrsv_ws_nextgen_update_json(json_t *obj, const char *key, json_t *value);
 static bool     xrsv_ws_nextgen_update_json_str(json_t *obj, const char *key, const char *value);
 
+/* Constructor helpers to keep xrsv_ws_nextgen_create single-responsibility. */
+static void               xrsv_ws_nextgen_free_partial(xrsv_ws_nextgen_obj_t *obj);
+static xrsv_ws_nextgen_obj_t *xrsv_ws_nextgen_alloc_and_init(void);
+static bool               xrsv_ws_nextgen_build_init_root_and_payload(xrsv_ws_nextgen_obj_t *obj);
+static bool               xrsv_ws_nextgen_build_stb_element(xrsv_ws_nextgen_obj_t *obj, const xrsv_ws_nextgen_params_t *params);
+static bool               xrsv_ws_nextgen_build_id_objects(xrsv_ws_nextgen_obj_t *obj, const xrsv_ws_nextgen_params_t *params);
+static bool               xrsv_ws_nextgen_build_audio_object(xrsv_ws_nextgen_obj_t *obj, const xrsv_ws_nextgen_params_t *params, const char *codec);
+static bool               xrsv_ws_nextgen_build_stream_objects(xrsv_ws_nextgen_obj_t *obj);
+static void               xrsv_ws_nextgen_init_query_defaults(xrsv_ws_nextgen_obj_t *obj, const xrsv_ws_nextgen_params_t *params);
+
 static void xrsv_ws_nextgen_handler_ws_source_error(void *data, xrsr_src_t src);
 static void xrsv_ws_nextgen_handler_ws_session_begin(void *data, const uuid_t uuid, xrsr_src_t src, uint32_t dst_index, xrsr_keyword_detector_result_t *detector_result, xrsr_session_config_out_t *config_out, xrsr_session_config_in_t *config_in, rdkx_timestamp_t *timestamp, const char *transcription_in);
 static void xrsv_ws_nextgen_handler_ws_session_config(void *data, const uuid_t uuid, xrsr_session_config_in_t *config_in);
@@ -123,51 +133,89 @@ bool xrsv_ws_nextgen_object_is_valid(xrsv_ws_nextgen_obj_t *obj) {
    return(false);
 }
 
-xrsv_ws_nextgen_object_t xrsv_ws_nextgen_create(const xrsv_ws_nextgen_params_t *params) {
-   if(params == NULL) {
-      XLOGD_ERROR("invalid params");
-      return(NULL);
+static void xrsv_ws_nextgen_free_partial(xrsv_ws_nextgen_obj_t *obj) {
+   if(obj == NULL) {
+      return;
    }
-   xrsv_ws_nextgen_obj_t *obj = (xrsv_ws_nextgen_obj_t *)malloc(sizeof(xrsv_ws_nextgen_obj_t));
 
+   // json_decref(NULL) is safe in jansson, but keep explicit checks for clarity.
+   if(obj->obj_stream_end != NULL) {
+      json_decref(obj->obj_stream_end);
+      obj->obj_stream_end = NULL;
+   }
+   if(obj->obj_stream_end_payload != NULL) {
+      // payload is owned by obj_stream_end when inserted, but in failure paths it may not be.
+      json_decref(obj->obj_stream_end_payload);
+      obj->obj_stream_end_payload = NULL;
+   }
+   if(obj->obj_stream_begin != NULL) {
+      json_decref(obj->obj_stream_begin);
+      obj->obj_stream_begin = NULL;
+   }
+
+   if(obj->obj_init != NULL) {
+      json_decref(obj->obj_init);
+      obj->obj_init = NULL;
+   }
+
+   // Children are generally owned by obj_init graph, but these pointers may have been created and not inserted yet.
+   obj->obj_init_payload        = NULL;
+   obj->obj_init_elements       = NULL;
+   obj->obj_init_stb            = NULL;
+   obj->obj_init_stb_id         = NULL;
+   obj->obj_init_stb_audio      = NULL;
+   obj->obj_init_app            = NULL;
+   obj->obj_init_stb_id_account = NULL;
+   obj->obj_init_stb_id_device_id = NULL;
+
+   free(obj);
+}
+
+static xrsv_ws_nextgen_obj_t *xrsv_ws_nextgen_alloc_and_init(void) {
+   xrsv_ws_nextgen_obj_t *obj = (xrsv_ws_nextgen_obj_t *)malloc(sizeof(xrsv_ws_nextgen_obj_t));
    if(obj == NULL) {
       XLOGD_ERROR("Out of memory.");
-      return(NULL);
+      return NULL;
    }
-
    memset(obj, 0, sizeof(*obj));
 
+   // Create core objects used throughout init message generation.
    if((obj->obj_init = json_object()) == NULL) {
       XLOGD_ERROR("object create failed");
       free(obj);
-      return(NULL);
-   } else if((obj->obj_init_stb_id = json_object()) == NULL) {
+      return NULL;
+   }
+   if((obj->obj_init_stb_id = json_object()) == NULL) {
       XLOGD_ERROR("object create failed");
       json_decref(obj->obj_init);
       free(obj);
-      return(NULL);
-   } else if((obj->obj_init_stb = json_object()) == NULL) {
+      return NULL;
+   }
+   if((obj->obj_init_stb = json_object()) == NULL) {
       XLOGD_ERROR("object create failed");
       json_decref(obj->obj_init_stb_id);
       json_decref(obj->obj_init);
       free(obj);
-      return(NULL);
-   } else if((obj->obj_init_stb_audio = json_object()) == NULL) {
+      return NULL;
+   }
+   if((obj->obj_init_stb_audio = json_object()) == NULL) {
       XLOGD_ERROR("object create failed");
       json_decref(obj->obj_init_stb);
       json_decref(obj->obj_init_stb_id);
       json_decref(obj->obj_init);
       free(obj);
-      return(NULL);
-   } else if((obj->obj_init_elements = json_array()) == NULL) {
+      return NULL;
+   }
+   if((obj->obj_init_elements = json_array()) == NULL) {
       XLOGD_ERROR("object create failed");
       json_decref(obj->obj_init_stb_audio);
       json_decref(obj->obj_init_stb);
       json_decref(obj->obj_init_stb_id);
       json_decref(obj->obj_init);
       free(obj);
-      return(NULL);
-   } else if((obj->obj_init_payload = json_object()) == NULL) {
+      return NULL;
+   }
+   if((obj->obj_init_payload = json_object()) == NULL) {
       XLOGD_ERROR("object create failed");
       json_decref(obj->obj_init_elements);
       json_decref(obj->obj_init_stb_audio);
@@ -175,36 +223,65 @@ xrsv_ws_nextgen_object_t xrsv_ws_nextgen_create(const xrsv_ws_nextgen_params_t *
       json_decref(obj->obj_init_stb_id);
       json_decref(obj->obj_init);
       free(obj);
-      return(NULL);
+      return NULL;
    }
+
    obj->obj_init_app              = NULL;
    obj->obj_init_stb_id_account   = NULL;
    obj->obj_init_stb_id_device_id = NULL;
-   int rc;
 
-   const char *codec = "PCM_16_16K";
+   return obj;
+}
+
+static bool xrsv_ws_nextgen_build_init_root_and_payload(xrsv_ws_nextgen_obj_t *obj) {
+   if(obj == NULL) {
+      return false;
+   }
+
+   int rc = 0;
 
    // Root Object
-   rc  = json_object_set_new_nocheck(obj->obj_init,    XRSV_WS_NEXTGEN_JSON_KEY_MSG_TYPE,     json_string(XRSV_WS_NEXTGEN_JSON_MSG_TYPE_INIT));
-   rc |= json_object_set_new_nocheck(obj->obj_init,    XRSV_WS_NEXTGEN_JSON_KEY_MSG_PAYLOAD,  obj->obj_init_payload);
-   // End Root Object
+   rc  = json_object_set_new_nocheck(obj->obj_init, XRSV_WS_NEXTGEN_JSON_KEY_MSG_TYPE, json_string(XRSV_WS_NEXTGEN_JSON_MSG_TYPE_INIT));
+   rc |= json_object_set_new_nocheck(obj->obj_init, XRSV_WS_NEXTGEN_JSON_KEY_MSG_PAYLOAD, obj->obj_init_payload);
 
    // Payload Object
-   rc |= json_object_set_new_nocheck(obj->obj_init_payload, XRSV_WS_NEXTGEN_JSON_KEY_API_VERSION,  json_string(XRSV_WS_NEXTGEN_JSON_API_VERSION));
+   rc |= json_object_set_new_nocheck(obj->obj_init_payload, XRSV_WS_NEXTGEN_JSON_KEY_API_VERSION, json_string(XRSV_WS_NEXTGEN_JSON_API_VERSION));
    rc |= json_object_set_new_nocheck(obj->obj_init_payload, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENTS, obj->obj_init_elements);
-   // End Payload Object
 
-   // Elements Object
+   // Elements: insert STB element container.
    rc |= json_array_insert_new(obj->obj_init_elements, XRSV_WS_NEXTGEN_JSON_ELEMENT_STB_INDEX, obj->obj_init_stb);
 
-   // STB Element Object
-   // TODO: Error checking
+   if(rc != 0) {
+      XLOGD_ERROR("object set failed");
+      return false;
+   }
+   return true;
+}
+
+static bool xrsv_ws_nextgen_build_stb_element(xrsv_ws_nextgen_obj_t *obj, const xrsv_ws_nextgen_params_t *params) {
+   if(obj == NULL || params == NULL) {
+      return false;
+   }
+
+   int rc = 0;
+
    json_t *obj_roles = json_array();
+   json_t *obj_capabilities = json_array();
+   if(obj_roles == NULL || obj_capabilities == NULL) {
+      if(obj_roles != NULL) {
+         json_decref(obj_roles);
+      }
+      if(obj_capabilities != NULL) {
+         json_decref(obj_capabilities);
+      }
+      XLOGD_ERROR("object create failed");
+      return false;
+   }
+
    rc |= json_array_append_new(obj_roles, json_string("input"));
    rc |= json_array_append_new(obj_roles, json_string("envoy"));
    rc |= json_array_append_new(obj_roles, json_string("av"));
 
-   json_t *obj_capabilities = json_array();
    rc |= json_array_append_new(obj_capabilities, json_string("TV_POWER"));
    rc |= json_array_append_new(obj_capabilities, json_string("TV_VOLUME"));
    rc |= json_array_append_new(obj_capabilities, json_string("WBW"));
@@ -221,50 +298,89 @@ xrsv_ws_nextgen_object_t xrsv_ws_nextgen_create(const xrsv_ws_nextgen_params_t *
    if(params->experience) {
       rc |= json_object_set_new_nocheck(obj->obj_init_stb, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_EXPERIENCE, json_string(params->experience));
    }
-
    if(params->language) {
       rc |= json_object_set_new_nocheck(obj->obj_init_stb, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_LANG, json_string(params->language));
    }
-
    if(params->device_mac) {
       rc |= json_object_set_new_nocheck(obj->obj_init_stb, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_MAC, json_string(params->device_mac));
    }
-
 
    rc |= json_object_set_new_nocheck(obj->obj_init_stb, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ROLES, obj_roles);
    rc |= json_object_set_new_nocheck(obj->obj_init_stb, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_DOWNSTREAM, json_string(XRSV_WS_NEXTGEN_JSON_DOWNSTREAM_PROTOCOL));
    rc |= json_object_set_new_nocheck(obj->obj_init_stb, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID, obj->obj_init_stb_id);
    rc |= json_object_set_new_nocheck(obj->obj_init_stb, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_AUDIO, obj->obj_init_stb_audio);
-   // TODO: Make capabilities / features configurable
    rc |= json_object_set_new_nocheck(obj->obj_init_stb, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_CAPABILITIES, obj_capabilities);
 
-   // ID Object
-   // TODO: TYPE (stb, skyq, etc)
+   if(rc != 0) {
+      XLOGD_ERROR("object set failed");
+      return false;
+   }
+   return true;
+}
+
+static bool xrsv_ws_nextgen_build_id_objects(xrsv_ws_nextgen_obj_t *obj, const xrsv_ws_nextgen_params_t *params) {
+   if(obj == NULL || params == NULL) {
+      return false;
+   }
+
+   int rc = 0;
+
+   // ID Object (type + values)
    json_t *obj_id_values = json_array();
-   rc |= json_object_set_new_nocheck(obj->obj_init_stb_id, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_TYPE, json_string(XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_TYPE_VALUE_STB));
+   if(obj_id_values == NULL) {
+      XLOGD_ERROR("object create failed");
+      return false;
+   }
+
+   rc |= json_object_set_new_nocheck(obj->obj_init_stb_id, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_TYPE,
+                                    json_string(XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_TYPE_VALUE_STB));
    rc |= json_object_set_new_nocheck(obj->obj_init_stb_id, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_VALUES, obj_id_values);
+
    if(params->partner_id) {
       rc |= json_object_set_new_nocheck(obj->obj_init_stb_id, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_PARTNER, json_string(params->partner_id));
    }
 
-   // ID Values Object
+   // Optional ID value objects
    if(params->account_id != NULL) {
       obj->obj_init_stb_id_account = json_object();
-      rc |= json_object_set_new_nocheck(obj->obj_init_stb_id_account, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_TYPE, json_string(XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_VALUE_ACCOUNT_ID));
-      rc |= json_object_set_new_nocheck(obj->obj_init_stb_id_account, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_VALUE, json_string(params->account_id));
-
+      if(obj->obj_init_stb_id_account == NULL) {
+         XLOGD_ERROR("object create failed");
+         return false;
+      }
+      rc |= json_object_set_new_nocheck(obj->obj_init_stb_id_account, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_TYPE,
+                                       json_string(XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_VALUE_ACCOUNT_ID));
+      rc |= json_object_set_new_nocheck(obj->obj_init_stb_id_account, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_VALUE,
+                                       json_string(params->account_id));
       rc |= json_array_append_new(obj_id_values, obj->obj_init_stb_id_account);
    }
+
    if(params->device_id != NULL) {
       obj->obj_init_stb_id_device_id = json_object();
-      rc |= json_object_set_new_nocheck(obj->obj_init_stb_id_device_id, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_TYPE, json_string(XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_VALUE_DEVICE_ID));
-      rc |= json_object_set_new_nocheck(obj->obj_init_stb_id_device_id, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_VALUE, json_string(params->device_id));
-
+      if(obj->obj_init_stb_id_device_id == NULL) {
+         XLOGD_ERROR("object create failed");
+         return false;
+      }
+      rc |= json_object_set_new_nocheck(obj->obj_init_stb_id_device_id, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_TYPE,
+                                       json_string(XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_VALUE_DEVICE_ID));
+      rc |= json_object_set_new_nocheck(obj->obj_init_stb_id_device_id, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_ID_VALUE,
+                                       json_string(params->device_id));
       rc |= json_array_append_new(obj_id_values, obj->obj_init_stb_id_device_id);
    }
-   // End ID Values Object
-   // End ID Object
-   // Audio Object
+
+   if(rc != 0) {
+      XLOGD_ERROR("object set failed");
+      return false;
+   }
+   return true;
+}
+
+static bool xrsv_ws_nextgen_build_audio_object(xrsv_ws_nextgen_obj_t *obj, const xrsv_ws_nextgen_params_t *params, const char *codec) {
+   if(obj == NULL || params == NULL || codec == NULL) {
+      return false;
+   }
+
+   int rc = 0;
+
    rc |= json_object_set_new_nocheck(obj->obj_init_stb_audio, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_AUDIO_CODEC, json_string(codec));
    if(params->audio_profile) {
       rc |= json_object_set_new_nocheck(obj->obj_init_stb_audio, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_AUDIO_PROFILE, json_string(params->audio_profile));
@@ -272,69 +388,95 @@ xrsv_ws_nextgen_object_t xrsv_ws_nextgen_create(const xrsv_ws_nextgen_params_t *
    if(params->audio_model) {
       rc |= json_object_set_new_nocheck(obj->obj_init_stb_audio, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_AUDIO_MODEL, json_string(params->audio_model));
    }
-   if (params->rf_protocol) {
+   if(params->rf_protocol) {
       rc |= json_object_set_new_nocheck(obj->obj_init_stb_audio, XRSV_WS_NEXTGEN_JSON_KEY_ELEMENT_AUDIO_RF_PROTOCOL, json_string(params->rf_protocol));
    }
-   // End Audio Object
-   // End STB Element Object
-
-   // Version query param
-   snprintf(obj->query_element_version, sizeof(obj->query_element_version), "version=v1");
 
    if(rc != 0) {
       XLOGD_ERROR("object set failed");
-      json_decref(obj->obj_init);
-      free(obj);
-      return(NULL);
+      return false;
+   }
+   return true;
+}
+
+static bool xrsv_ws_nextgen_build_stream_objects(xrsv_ws_nextgen_obj_t *obj) {
+   if(obj == NULL) {
+      return false;
    }
 
    if((obj->obj_stream_begin = json_object()) == NULL) {
       XLOGD_ERROR("object create failed");
-      json_decref(obj->obj_init);
-      free(obj);
-      return(NULL);
-   } else if((obj->obj_stream_end = json_object()) == NULL) {
-      XLOGD_ERROR("object create failed");
-      json_decref(obj->obj_stream_begin);
-      json_decref(obj->obj_init);
-      free(obj);
-      return(NULL);
-   } else if((obj->obj_stream_end_payload = json_object()) == NULL) {
-      XLOGD_ERROR("object create failed");
-      json_decref(obj->obj_stream_begin);
-      json_decref(obj->obj_stream_end);
-      json_decref(obj->obj_init);
-      free(obj);
-      return(NULL);
+      return false;
    }
+   if((obj->obj_stream_end = json_object()) == NULL) {
+      XLOGD_ERROR("object create failed");
+      return false;
+   }
+   if((obj->obj_stream_end_payload = json_object()) == NULL) {
+      XLOGD_ERROR("object create failed");
+      return false;
+   }
+
+   int rc = 0;
 
    // SOS Object
    rc  = json_object_set_new_nocheck(obj->obj_stream_begin, XRSV_WS_NEXTGEN_JSON_KEY_MSG_TYPE, json_string(XRSV_WS_NEXTGEN_JSON_MSG_TYPE_SOS));
-   // End SOS Object
 
-   // EOS Object
+   // EOS Object + payload
    rc |= json_object_set_new_nocheck(obj->obj_stream_end, XRSV_WS_NEXTGEN_JSON_KEY_MSG_TYPE, json_string(XRSV_WS_NEXTGEN_JSON_MSG_TYPE_EOS));
    rc |= json_object_set_new_nocheck(obj->obj_stream_end, XRSV_WS_NEXTGEN_JSON_KEY_MSG_PAYLOAD, obj->obj_stream_end_payload);
-
-   // EOS Payload
    rc |= json_object_set_new_nocheck(obj->obj_stream_end_payload, XRSV_WS_NEXTGEN_JSON_KEY_REASON, json_integer(0));
-   // End EOS Payload
-   // End EOS Object
 
    if(rc != 0) {
       XLOGD_ERROR("object set failed");
-      json_decref(obj->obj_init);
-      json_decref(obj->obj_stream_end);
-      json_decref(obj->obj_stream_begin);
-      free(obj);
-      return(NULL);
+      return false;
    }
 
+   return true;
+}
+
+static void xrsv_ws_nextgen_init_query_defaults(xrsv_ws_nextgen_obj_t *obj, const xrsv_ws_nextgen_params_t *params) {
+   if(obj == NULL || params == NULL) {
+      return;
+   }
+
+   // Version query param
+   snprintf(obj->query_element_version, sizeof(obj->query_element_version), "version=v1");
+
    if(params->device_id != NULL) {
-      rc = snprintf(obj->query_element_device_id,     sizeof(obj->query_element_device_id), "id=%s",    params->device_id);
+      int rc = snprintf(obj->query_element_device_id, sizeof(obj->query_element_device_id), "id=%s", params->device_id);
       if(rc >= sizeof(obj->query_element_device_id)) {
          XLOGD_WARN("truncated device id <%d>", rc);
       }
+   }
+}
+
+xrsv_ws_nextgen_object_t xrsv_ws_nextgen_create(const xrsv_ws_nextgen_params_t *params) {
+   if(params == NULL) {
+      XLOGD_ERROR("invalid params");
+      return(NULL);
+   }
+
+   const char *codec = "PCM_16_16K";
+   xrsv_ws_nextgen_obj_t *obj = xrsv_ws_nextgen_alloc_and_init();
+   if(obj == NULL) {
+      return NULL;
+   }
+
+   if(!xrsv_ws_nextgen_build_init_root_and_payload(obj) ||
+      !xrsv_ws_nextgen_build_stb_element(obj, params) ||
+      !xrsv_ws_nextgen_build_id_objects(obj, params) ||
+      !xrsv_ws_nextgen_build_audio_object(obj, params, codec)) {
+      xrsv_ws_nextgen_free_partial(obj);
+      return NULL;
+   }
+
+   xrsv_ws_nextgen_init_query_defaults(obj, params);
+
+   if(!xrsv_ws_nextgen_build_stream_objects(obj)) {
+      // Need to free init objects too.
+      xrsv_ws_nextgen_free_partial(obj);
+      return NULL;
    }
 
    obj->identifier = XRSV_WS_NEXTGEN_IDENTIFIER;

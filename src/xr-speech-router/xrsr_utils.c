@@ -282,6 +282,163 @@ const char *xrsr_cert_type_str(xrsr_cert_type_t type) {
    return(xrsr_invalid_return(type));
 }
 
+#ifdef USE_CURL_UNESCAPE
+static char *xrsr_url_unescape_if_needed(const char *url, bool *needs_free) {
+   if(needs_free != NULL) {
+      *needs_free = false;
+   }
+
+   if(url == NULL) {
+      return NULL;
+   }
+
+   CURL *obj = curl_easy_init();
+   if(obj == NULL) {
+      XLOGD_ERROR("unable to init curl");
+      return NULL;
+   }
+
+   char *tmp_url = curl_easy_unescape(obj, url, 0, NULL);
+   curl_easy_cleanup(obj);
+
+   if(tmp_url == NULL) {
+      XLOGD_ERROR("unable to unescape");
+      return NULL;
+   }
+
+   if(needs_free != NULL) {
+      *needs_free = true;
+   }
+   XLOGD_INFO("unescaped url <%s>", tmp_url);
+   return tmp_url;
+}
+#endif
+
+static bool xrsr_url_protocol_parse(const char *tmp_url, xrsr_protocol_t *prot, uint16_t *port, uint32_t *index) {
+   if(tmp_url == NULL || prot == NULL || port == NULL || index == NULL) {
+      return false;
+   }
+
+   // Defaults (HTTPS/WSS typical default port); caller may override for specific schemes.
+   *port  = 443;
+   *index = 0;
+
+   if(0 == strncmp(tmp_url, "wss://", 6)) {
+      *prot  = XRSR_PROTOCOL_WSS;
+      *index = 6;
+   } else if(0 == strncmp(tmp_url, "https://", 8)) {
+      *prot  = XRSR_PROTOCOL_HTTPS;
+      *index = 8;
+   } else if(0 == strncmp(tmp_url, "ws://", 5)) {
+      *prot  = XRSR_PROTOCOL_WS;
+      *port  = 80;
+      *index = 5;
+   } else if(0 == strncmp(tmp_url, "http://", 7)) {
+      *prot  = XRSR_PROTOCOL_HTTP;
+      *port  = 80;
+      *index = 7;
+   } else if(0 == strncmp(tmp_url, "sdt://", 6)) {
+      *prot  = XRSR_PROTOCOL_SDT;
+      *port  = 80;
+      *index = 6;
+   } else {
+      XLOGD_WARN("invalid protocol");
+      return false;
+   }
+   return true;
+}
+
+static char *xrsr_url_alloc_workbuf(const char *tmp_url, uint32_t index, char **out_ptr_path, size_t *out_len_url, size_t *out_len_uhp) {
+   if(tmp_url == NULL || out_ptr_path == NULL || out_len_url == NULL || out_len_uhp == NULL) {
+      return NULL;
+   }
+
+   // Find start of path (within tmp_url).
+   char *ptr_path = strchrnul(&tmp_url[index], '/');
+
+   // Allocate memory for full URL + a user/host/port scratch area + port string area.
+   size_t len_url = strlen(tmp_url) + 1;
+   size_t len_uhp = len_url - strlen(ptr_path) - index;
+
+   #define PORT_LEN_MAX (6)
+   char *ptr_urle = malloc(len_url + len_uhp + PORT_LEN_MAX);
+   if(ptr_urle == NULL) {
+      XLOGD_ERROR("out of memory");
+      return NULL;
+   }
+
+   strlcpy(ptr_urle,           tmp_url,         len_url);
+   strlcpy(&ptr_urle[len_url], &tmp_url[index], len_uhp);
+
+   *out_ptr_path = ptr_path;
+   *out_len_url  = len_url;
+   *out_len_uhp  = len_uhp;
+   return ptr_urle;
+}
+
+static bool xrsr_url_parse_user_host_port(char *ptr_urle, size_t len_url, size_t len_uhp, uint32_t index,
+                                         uint16_t *tmp_port, char **ptr_user, char **ptr_host, char **ptr_port) {
+   if(ptr_urle == NULL || tmp_port == NULL || ptr_user == NULL || ptr_host == NULL || ptr_port == NULL) {
+      return false;
+   }
+
+   // Chop up user@host:port into pieces (stored in scratch area at ptr_urle[len_url]).
+   char *tmp_ptr  = &ptr_urle[len_url];
+
+   char *user = strchr(tmp_ptr, '@');
+   if(user != NULL) { // User field present
+      char *tmp = tmp_ptr;
+      *user++   = '\0';
+      tmp_ptr   = user;
+      user      = tmp;
+   }
+   char *host = tmp_ptr;
+
+   char *port_str = strchr(tmp_ptr, ':');
+   if(port_str != NULL) { // Port field present
+      *port_str++ = '\0';
+      errno = 0;
+      unsigned long int port = strtoul(port_str, NULL, 10);
+      if(errno) {
+         int errsv = errno;
+         XLOGD_ERROR("port conversion <%s>", strerror(errsv));
+         return false;
+      } else if(port > UINT16_MAX) {
+         XLOGD_ERROR("port out of range <%u>", port);
+         return false;
+      }
+      *tmp_port = port;
+   } else { // Convert port to string at end of buffer
+      port_str = &ptr_urle[len_url + len_uhp];
+      snprintf(port_str, PORT_LEN_MAX, "%u", *tmp_port);
+   }
+
+   *ptr_user = user;
+   *ptr_host = host;
+   *ptr_port = port_str;
+   return true;
+}
+
+static void xrsr_url_fill_parts(xrsr_url_parts_t *url_parts, char *ptr_urle, char *ptr_user, char *ptr_host, char *ptr_path,
+                               xrsr_protocol_t prot, char *ptr_port, uint16_t port_int,
+                               bool has_query, bool has_param, bool has_fragment) {
+   if(url_parts == NULL) {
+      return;
+   }
+
+   url_parts->urle         = ptr_urle;
+   url_parts->user         = ptr_user;
+   url_parts->host         = ptr_host;
+   url_parts->path         = ptr_path;
+   url_parts->prot         = prot;
+   url_parts->port_str     = ptr_port;
+   url_parts->port_int     = port_int;
+   url_parts->family       = XRSR_ADDRESS_FAMILY_INVALID;
+   url_parts->has_query    = has_query;
+   url_parts->has_param    = has_param;
+   url_parts->has_fragment = has_fragment;
+}
+
 bool xrsr_url_parse(const char *url, xrsr_url_parts_t *url_parts) {
    if(url == NULL) {
       XLOGD_ERROR("NULL url");
@@ -291,75 +448,42 @@ bool xrsr_url_parse(const char *url, xrsr_url_parts_t *url_parts) {
       XLOGD_ERROR("NULL url_parts");
       return(false);
    }
-   #ifdef USE_CURL_UNESCAPE
-   // unescape the url first
-   CURL *obj = curl_easy_init();
-   if(obj == NULL) {
-      XLOGD_ERROR("unable to init curl");
-      return(false);
-   }
-   char *tmp_url = curl_easy_unescape(obj, url, 0, NULL);
-   curl_easy_cleanup(obj);
-   
-   if(tmp_url == NULL) {
-      XLOGD_ERROR("unable to unescape");
-      return(false);
-   }
-   XLOGD_INFO("unescaped url <%s>", tmp_url);
-   #else
+
    const char *tmp_url = url;
+   #ifdef USE_CURL_UNESCAPE
+   bool tmp_url_needs_free = false;
+   tmp_url = xrsr_url_unescape_if_needed(url, &tmp_url_needs_free);
+   if(tmp_url == NULL) {
+      return false;
+   }
    #endif
-   
+
    xrsr_protocol_t tmp_prot;
    uint16_t        tmp_port = 443;
    uint32_t        index    = 0;
-   if(0 == strncmp(tmp_url, "wss://", 6)) {
-      tmp_prot = XRSR_PROTOCOL_WSS;
-      index = 6;
-   } else if(0 == strncmp(tmp_url, "https://", 8)) {
-      tmp_prot = XRSR_PROTOCOL_HTTPS;
-      index = 8;
-   } else if(0 == strncmp(tmp_url, "ws://", 5)) {
-      tmp_prot = XRSR_PROTOCOL_WS;
-      tmp_port = 80;
-      index = 5;
-   } else if(0 == strncmp(tmp_url, "http://", 7)) {
-      tmp_prot = XRSR_PROTOCOL_HTTP;
-      tmp_port = 80;
-      index = 7;
-   } else if(0 == strncmp(tmp_url, "sdt://", 6)) {
-      tmp_prot = XRSR_PROTOCOL_SDT;
-      tmp_port = 80;
-      index = 6;
-   } else {
-      XLOGD_WARN("invalid protocol");
+   if(!xrsr_url_protocol_parse(tmp_url, &tmp_prot, &tmp_port, &index)) {
       #ifdef USE_CURL_UNESCAPE
-      curl_free(tmp_url);
+      if(tmp_url_needs_free) {
+         curl_free((void *)tmp_url);
+      }
       #endif
-      return(false);
+      return false;
    }
-   
-   // Find start of path
-   char *ptr_path = strchrnul(&tmp_url[index], '/');
-   
-   // Allocate memory for the unescaped url and user, host
-   size_t len_url = strlen(tmp_url) + 1;
-   size_t len_uhp = len_url - strlen(ptr_path) - index;
-   
-   #define PORT_LEN_MAX (6)
-   char *ptr_urle = malloc(len_url + len_uhp + PORT_LEN_MAX);
-   
-   if(ptr_urle == NULL) {
-      XLOGD_ERROR("out of memory");
-      #ifdef USE_CURL_UNESCAPE
-      curl_free(tmp_url);
-      #endif
-      return(false);
-   }
-   
-   strlcpy(ptr_urle,           tmp_url,         len_url);
-   strlcpy(&ptr_urle[len_url], &tmp_url[index], len_uhp);
 
+   char  *ptr_path_in_tmp = NULL;
+   size_t len_url = 0;
+   size_t len_uhp = 0;
+   char *ptr_urle = xrsr_url_alloc_workbuf(tmp_url, index, &ptr_path_in_tmp, &len_url, &len_uhp);
+   if(ptr_urle == NULL) {
+      #ifdef USE_CURL_UNESCAPE
+      if(tmp_url_needs_free) {
+         curl_free((void *)tmp_url);
+      }
+      #endif
+      return false;
+   }
+
+   // Query/fragment checks are against the original (unescaped) tmp_url string (matching previous behavior).
    char *question = strchr(tmp_url, '?');
    bool has_query    = (NULL == question) ? false : true;
    bool has_param    = has_query;
@@ -369,58 +493,30 @@ bool xrsr_url_parse(const char *url, xrsr_url_parts_t *url_parts) {
    bool has_fragment = (NULL == strchr(tmp_url, '#')) ? false : true;
 
    #ifdef USE_CURL_UNESCAPE
-   curl_free(tmp_url);
+   if(tmp_url_needs_free) {
+      curl_free((void *)tmp_url);
+   }
    #endif
    tmp_url = NULL;
-   
-   // Use url for path pointer
-   ptr_path = strchrnul(&ptr_urle[index], '/');
-   
-   // Chop up user@host:port into pieces
-   char *tmp_ptr  = &ptr_urle[len_url];
-   
-   char *ptr_user = strchr(tmp_ptr, '@');
-   if(ptr_user != NULL) { // User field present
-      char *tmp   = tmp_ptr;
-      *ptr_user++ = '\0';
-      tmp_ptr     = ptr_user;
-      ptr_user    = tmp;
-   } 
-   char *ptr_host = tmp_ptr;
-   char *ptr_port = strchr(tmp_ptr, ':');
-   if(ptr_port != NULL) { // port field present
-      *ptr_port++ = '\0';
-      errno = 0;
-      unsigned long int port = strtoul(ptr_port, NULL, 10);
-      if(errno) {
-         int errsv = errno;
-         XLOGD_ERROR("port conversion <%s>", strerror(errsv));
-         free(ptr_urle);
-         return(false);
-      } else if(port > UINT16_MAX) {
-         XLOGD_ERROR("port out of range <%u>", port);
-         free(ptr_urle);
-         return(false);
-      }
-      tmp_port = port;
-   } else { // Convert port to string at the end of the buffer
-      ptr_port = &ptr_urle[len_url + len_uhp];
-      snprintf(ptr_port, PORT_LEN_MAX, "%u", tmp_port);
+
+   // Use ptr_urle for path pointer (same as original code).
+   char *ptr_path = strchrnul(&ptr_urle[index], '/');
+
+   // Parse user/host/port in-place within scratch space.
+   char *ptr_user = NULL;
+   char *ptr_host = NULL;
+   char *ptr_port = NULL;
+   if(!xrsr_url_parse_user_host_port(ptr_urle, len_url, len_uhp, index, &tmp_port, &ptr_user, &ptr_host, &ptr_port)) {
+      free(ptr_urle);
+      return false;
    }
 
-   XLOGD_INFO("url <%s> prot <%s> user <%s> host <%s> port_str <%s> port_int <%u> path <%s>", ptr_urle, xrsr_protocol_str(tmp_prot), ptr_user ? ptr_user : "NULL", ptr_host, ptr_port, tmp_port, ptr_path);
-   
-   url_parts->urle         = ptr_urle;
-   url_parts->user         = ptr_user;
-   url_parts->host         = ptr_host;
-   url_parts->path         = ptr_path;
-   url_parts->prot         = tmp_prot;
-   url_parts->port_str     = ptr_port;
-   url_parts->port_int     = tmp_port;
-   url_parts->family       = XRSR_ADDRESS_FAMILY_INVALID;
-   url_parts->has_query    = has_query;
-   url_parts->has_param    = has_param;
-   url_parts->has_fragment = has_fragment;
+   XLOGD_INFO("url <%s> prot <%s> user <%s> host <%s> port_str <%s> port_int <%u> path <%s>",
+              ptr_urle, xrsr_protocol_str(tmp_prot), ptr_user ? ptr_user : "NULL", ptr_host, ptr_port, tmp_port, ptr_path);
+
+   xrsr_url_fill_parts(url_parts, ptr_urle, ptr_user, ptr_host, ptr_path,
+                       tmp_prot, ptr_port, tmp_port,
+                       has_query, has_param, has_fragment);
    return(true);
 }
 

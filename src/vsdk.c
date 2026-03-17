@@ -66,7 +66,17 @@ static vsdk_global_t g_vsdk;
 
 static void  vsdk_thread_response(void);
 static bool  vsdk_file_exists(const char *filename);
+
+/* Vendor options parsing helpers (keep vsdk_parse_options readable). */
+static json_t *vsdk_vendor_options_load_json(const char *vendor_options_file);
+static void    vsdk_vendor_options_apply_bool(json_t *json_obj_vendor_options, const char *key, bool *value);
+static void    vsdk_vendor_options_assign_outputs(bool *curtail_xlog, bool *curtail_xraudio, bool *xraudio_allow_input_failure,
+                                                 bool crtl_xlog, bool crtl_xraudio, bool allow_input_failure);
+
 static void  vsdk_parse_options(bool *curtail_xlog, bool *curtail_xraudio, bool *xraudio_allow_input_failure);
+
+/* FFV plugin loading helpers. */
+static void  vsdk_ffv_handles_cleanup_partial(vsdk_ffv_plugin_handles_t *handles);
 static bool  vsdk_load_plugin_ffv(vsdk_ffv_plugin_handles_t *handles);
 static void *vsdk_load_plugin_ffv_hal(bool *out_enabled);
 static void *vsdk_load_plugin_ffv_kwd(void);
@@ -331,64 +341,131 @@ bool vsdk_file_exists(const char *filename) {
    return false;
 }
 
+static json_t *vsdk_vendor_options_load_json(const char *vendor_options_file) {
+   if(vendor_options_file == NULL) {
+      return NULL;
+   }
+
+   json_t *json_obj_vendor_options = json_load_file(vendor_options_file, JSON_REJECT_DUPLICATES, NULL);
+
+   if(json_obj_vendor_options == NULL || !json_is_object(json_obj_vendor_options)) {
+      if(json_obj_vendor_options != NULL) {
+         json_decref(json_obj_vendor_options);
+      }
+      XLOGD_ERROR("invalid vendor options file format");
+      return NULL;
+   }
+
+   return json_obj_vendor_options;
+}
+
+static void vsdk_vendor_options_apply_bool(json_t *json_obj_vendor_options, const char *key, bool *value) {
+   if(json_obj_vendor_options == NULL || key == NULL || value == NULL) {
+      return;
+   }
+
+   json_t *option = json_object_get(json_obj_vendor_options, key);
+   if(option == NULL) {
+      // Not present, keep default.
+      return;
+   }
+   if(!json_is_boolean(option)) {
+      XLOGD_ERROR("invalid vendor option format - %s", key);
+      return;
+   }
+
+   *value = json_boolean_value(option);
+   XLOGD_INFO("%s is <%s>", key, (*value) ? "enabled" : "disabled");
+}
+
+static void vsdk_vendor_options_assign_outputs(bool *curtail_xlog, bool *curtail_xraudio, bool *xraudio_allow_input_failure,
+                                              bool crtl_xlog, bool crtl_xraudio, bool allow_input_failure) {
+   if(curtail_xlog != NULL) {
+      *curtail_xlog = crtl_xlog;
+   }
+   if(curtail_xraudio != NULL) {
+      *curtail_xraudio = crtl_xraudio;
+   }
+   if(xraudio_allow_input_failure != NULL) {
+      *xraudio_allow_input_failure = allow_input_failure;
+   }
+}
+
 void vsdk_parse_options(bool *curtail_xlog, bool *curtail_xraudio, bool *xraudio_allow_input_failure) {
    bool crtl_xlog           = false;
    bool crtl_xraudio        = false;
    bool allow_input_failure = true;
 
-   // If the vendor supplied options are provided, use them.  Otherwise use the default values.
+   // If the vendor supplied options are provided, use them. Otherwise use the defaults above.
    const char *vendor_options_file = VSDK_VENDOR_OPTIONS_FILE;
 
-   if(vsdk_file_exists(vendor_options_file)) {
-      XLOGD_INFO("Using vendor options file: %s", vendor_options_file);
+   if(!vsdk_file_exists(vendor_options_file)) {
+      return;
+   }
 
-      json_t *json_obj_vendor_options = json_load_file(vendor_options_file, JSON_REJECT_DUPLICATES, NULL);
+   XLOGD_INFO("Using vendor options file: %s", vendor_options_file);
 
-      if(json_obj_vendor_options == NULL || !json_is_object(json_obj_vendor_options)) {
-         XLOGD_ERROR("invalid vendor options file format");
-      } else {
-         json_t *option = json_object_get(json_obj_vendor_options, "curtail_xlog");
-         if(option == NULL) {
-            // Not present
-         } else if(!json_is_boolean(option)) {
-            XLOGD_ERROR("invalid vendor option format - curtail_xlog");
-         } else {
-            crtl_xlog = json_boolean_value(option);
-            XLOGD_INFO("curtail xlog is <%s>", crtl_xlog ? "enabled" : "disabled");
-         }
-         option = json_object_get(json_obj_vendor_options, "curtail_xraudio");
-         if(option == NULL) {
-            // Not present
-         } else if(!json_is_boolean(option)) {
-            XLOGD_ERROR("invalid vendor option format - curtail_xraudio");
-         } else {
-            crtl_xraudio = json_boolean_value(option);
-            XLOGD_INFO("curtail xraudio is <%s>", crtl_xraudio ? "enabled" : "disabled");
-         }
-         option = json_object_get(json_obj_vendor_options, "allow_input_failure");
-         if(option == NULL) {
-            // Not present
-         } else if(!json_is_boolean(option)) {
-            XLOGD_ERROR("invalid vendor option format - allow_input_failure");
-         } else {
-            allow_input_failure = json_boolean_value(option);
-            XLOGD_INFO("allow input failure is <%s>", allow_input_failure ? "enabled" : "disabled");
-         }
-      }
-      if(json_obj_vendor_options != NULL) {
-         json_decref(json_obj_vendor_options);
-         json_obj_vendor_options = NULL;
-      }
+   json_t *json_obj_vendor_options = vsdk_vendor_options_load_json(vendor_options_file);
+   if(json_obj_vendor_options != NULL) {
+      vsdk_vendor_options_apply_bool(json_obj_vendor_options, "curtail_xlog", &crtl_xlog);
+      vsdk_vendor_options_apply_bool(json_obj_vendor_options, "curtail_xraudio", &crtl_xraudio);
+      vsdk_vendor_options_apply_bool(json_obj_vendor_options, "allow_input_failure", &allow_input_failure);
 
-      if(curtail_xlog != NULL) {
-         *curtail_xlog = crtl_xlog;
+      json_decref(json_obj_vendor_options);
+      json_obj_vendor_options = NULL;
+   }
+
+   vsdk_vendor_options_assign_outputs(curtail_xlog, curtail_xraudio, xraudio_allow_input_failure,
+                                      crtl_xlog, crtl_xraudio, allow_input_failure);
+}
+
+static void vsdk_ffv_handles_cleanup_partial(vsdk_ffv_plugin_handles_t *handles) {
+   if(handles == NULL) {
+      return;
+   }
+
+   // Close and null any partially loaded modules; keep behavior identical to previous code.
+   if(handles->handle_ffv_hal != NULL) {
+      if(dlclose(handles->handle_ffv_hal) != 0) {
+         const char *err = dlerror();
+         XLOGD_ERROR("dlclose failed for FFV HAL <%s>", (err != NULL) ? err : "unknown error");
       }
-      if(curtail_xraudio != NULL) {
-         *curtail_xraudio = crtl_xraudio;
+      handles->handle_ffv_hal = NULL;
+   }
+   if(handles->handle_ffv_kwd != NULL) {
+      if(dlclose(handles->handle_ffv_kwd) != 0) {
+         const char *err = dlerror();
+         XLOGD_ERROR("dlclose failed for FFV KWD <%s>", (err != NULL) ? err : "unknown error");
       }
-      if(xraudio_allow_input_failure != NULL) {
-         *xraudio_allow_input_failure = allow_input_failure;
+      handles->handle_ffv_kwd = NULL;
+   }
+   if(handles->handle_ffv_alg != NULL) {
+      if(dlclose(handles->handle_ffv_alg) != 0) {
+         const char *err = dlerror();
+         XLOGD_ERROR("dlclose failed for FFV ALG <%s>", (err != NULL) ? err : "unknown error");
       }
+      handles->handle_ffv_alg = NULL;
+   }
+   if(handles->handle_ffv_sdf != NULL) {
+      if(dlclose(handles->handle_ffv_sdf) != 0) {
+         const char *err = dlerror();
+         XLOGD_ERROR("dlclose failed for FFV SDF <%s>", (err != NULL) ? err : "unknown error");
+      }
+      handles->handle_ffv_sdf = NULL;
+   }
+   if(handles->handle_ffv_ovc != NULL) {
+      if(dlclose(handles->handle_ffv_ovc) != 0) {
+         const char *err = dlerror();
+         XLOGD_ERROR("dlclose failed for FFV OVC <%s>", (err != NULL) ? err : "unknown error");
+      }
+      handles->handle_ffv_ovc = NULL;
+   }
+   if(handles->handle_ffv_ppr != NULL) {
+      if(dlclose(handles->handle_ffv_ppr) != 0) {
+         const char *err = dlerror();
+         XLOGD_ERROR("dlclose failed for FFV PPR <%s>", (err != NULL) ? err : "unknown error");
+      }
+      handles->handle_ffv_ppr = NULL;
    }
 }
 
@@ -425,48 +502,7 @@ bool vsdk_load_plugin_ffv(vsdk_ffv_plugin_handles_t *handles) {
    } while(0);
 
    if(!ret) {
-      if(handles->handle_ffv_hal != NULL) {
-         if(dlclose(handles->handle_ffv_hal) != 0) {
-            const char *err = dlerror();
-            XLOGD_ERROR("dlclose failed for FFV HAL <%s>", (err != NULL) ? err : "unknown error");
-         }
-         handles->handle_ffv_hal = NULL;
-      }
-      if(handles->handle_ffv_kwd != NULL) {
-         if(dlclose(handles->handle_ffv_kwd) != 0) {
-            const char *err = dlerror();
-            XLOGD_ERROR("dlclose failed for FFV KWD <%s>", (err != NULL) ? err : "unknown error");
-         }
-         handles->handle_ffv_kwd = NULL;
-      }
-      if(handles->handle_ffv_alg != NULL) {
-         if(dlclose(handles->handle_ffv_alg) != 0) {
-            const char *err = dlerror();
-            XLOGD_ERROR("dlclose failed for FFV ALG <%s>", (err != NULL) ? err : "unknown error");
-         }
-         handles->handle_ffv_alg = NULL;
-      }
-      if(handles->handle_ffv_sdf != NULL) {
-         if(dlclose(handles->handle_ffv_sdf) != 0) {
-            const char *err = dlerror();
-            XLOGD_ERROR("dlclose failed for FFV SDF <%s>", (err != NULL) ? err : "unknown error");
-         }
-         handles->handle_ffv_sdf = NULL;
-      }
-      if(handles->handle_ffv_ovc != NULL) {
-         if(dlclose(handles->handle_ffv_ovc) != 0) {
-            const char *err = dlerror();
-            XLOGD_ERROR("dlclose failed for FFV OVC <%s>", (err != NULL) ? err : "unknown error");
-         }
-         handles->handle_ffv_ovc = NULL;
-      }
-      if(handles->handle_ffv_ppr != NULL) {
-         if(dlclose(handles->handle_ffv_ppr) != 0) {
-            const char *err = dlerror();
-            XLOGD_ERROR("dlclose failed for FFV PPR <%s>", (err != NULL) ? err : "unknown error");
-         }
-         handles->handle_ffv_ppr = NULL;
-      }
+      vsdk_ffv_handles_cleanup_partial(handles);
    }
 
    XLOGD_INFO("FFV plugin is <%s>", ret ? "enabled" : "disabled");
